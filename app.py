@@ -622,7 +622,8 @@ elif menu == "Record Entry":
     curdat, item, amount, category, unit, account = record_form(entry_type)
     #nitem = item.upper()
 #    nunit = unit.upper()
-
+    if unit is None:
+        unit = ""
 
     if st.button("Save Entry"):
         if curdat is None:
@@ -635,8 +636,8 @@ elif menu == "Record Entry":
                 st.error("❌ Error: Please review input amount")
             elif category is None:
                 st.error("❌ Please select a category before saving")
-            elif unit is None:
-                st.error("❌ Please select a villa unit before saving")
+            #elif unit is None:
+            #    st.error("❌ Please select a villa unit before saving")
             elif account is None:
                 st.error("❌ Please select an account before saving")
             else:                
@@ -663,8 +664,6 @@ elif menu == "Record Entry":
 
                 except ValueError as e:
                         st.error(str(e))
-
-
     st.divider()
 
     # --- SHOW ENRTIES ---
