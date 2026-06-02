@@ -622,18 +622,17 @@ elif menu == "Record Entry":
             st.error("❌ Error: Please select a date")
         else:
 
-            if amount < 1:
+            if item.strip() == "":
+                st.error("❌ Please describe the income/expense before saving")
+            elif amount < 1:
                 st.error("❌ Error: Please review input amount")
             elif category is None:
                 st.error("❌ Please select a category before saving")
-            elif item.strip() == "":
-                st.error("❌ Please describe the income/expense before saving")
             elif unit is None:
                 st.error("❌ Please select a villa unit before saving")
             elif account is None:
                 st.error("❌ Please select an account before saving")
-            else:
-                
+            else:                
                 try:
                     inflow, outflow = prepare_transaction(entry_type, amount)
 
