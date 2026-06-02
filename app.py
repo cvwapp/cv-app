@@ -257,7 +257,7 @@ if not st.session_state.logged_in:
 
 # --- UI ---
 # Set page configuration (optional but looks professional)
-st.set_page_config(page_title="Financial Manager", layout="wide")
+st.set_page_config(page_title="Canggutopia Villas", layout="wide")
 
 # --- SIDEBAR MENU ---
 with st.sidebar:
