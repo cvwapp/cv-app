@@ -305,7 +305,7 @@ elif menu == "DB Entry":
     # Replace with your actual SQL fetch logic
     # st.dataframe(df)
 #    st.info("Displaying raw data from 'Master' table...")
-
+    st.divider()
     st.subheader("Properties")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -440,7 +440,7 @@ elif menu == "All Records":
     st.title("🗄️ Master Records")
 #    st.title("Canggutopia - Inputs DB 🌴")
 #    st.subheader("Properties")
-
+    st.divider()
 
 #    st.header("All Master Entries - Records")
     # 1. Fetch data and standardize column names
@@ -604,7 +604,7 @@ elif menu == "All Records":
 elif menu == "Record Entry":
     st.title("📝 Record Entry")
 
-    entry_type = st.segmented_control("Type", ["In Flow", "Out Flow"])
+    entry_type = st.segmented_control("", [" 📉 In Flow ", " 📈 Out Flow "])
     
     if entry_type == "In Flow":
         st.subheader("Add :violet[Income] Record")
@@ -613,7 +613,6 @@ elif menu == "Record Entry":
     else:
         st.write("**Please choose :violet['In Flow'] to add an :violet[Income record] and :yellow['Out Flow'] to add an :yellow[Expense record].**")
     st.divider()
-
 
     curdat, item, amount, category, unit, account = record_form(entry_type)
     nitem = item.upper()
@@ -926,11 +925,11 @@ elif menu == "Record Entry":
 elif menu == "Reports":
     st.title("📊 Financial Performance & Owner Payouts")
     #st.header("📊 Financial Performance & Owner Payouts")
-
+    
     # 1. Fetch data
     cursor.execute("SELECT DATE, CATEGORY, RP_OUT, RP_IN FROM records")
     data = cursor.fetchall()
-
+    
     if not data:
         st.warning("No data found in the records table.")
     else:
@@ -948,7 +947,11 @@ elif menu == "Reports":
         # 4. FILTER BY YEAR
         df['Year'] = df['date_dt'].dt.year
         year_list = sorted(df['Year'].unique(), reverse=True)
-        selected_year = st.selectbox("Select Year", year_list)
+        # Create two columns: a small one for the dropdown, a large one for empty space
+        # Adjust the ratio (e.g., 1:3) to fit your taste
+        col1, col2 = st.columns([1, 3])  
+        with col1:
+            selected_year = st.selectbox("Select Year", year_list)
         filtered_df = df[df['Year'] == selected_year].copy()
 #        filtered_df['Month'] = filtered_df['date_dt'].dt.strftime('%m - %b')
 #        filtered_df['Month'] = filtered_df['date_dt'].dt.strftime('%b')
@@ -966,6 +969,7 @@ elif menu == "Reports":
             categories=month_order,
             ordered=True
         )
+        st.divider()
 
         # --- 5. INCOME REPORT (INC) ---
         inc_mask = filtered_df['CATEGORY'].str.strip().str.upper().str.startswith('INC', na=False)
@@ -984,6 +988,21 @@ elif menu == "Reports":
 #                inc_pivot.style.format(lambda x: "" if x == 0 else "{:,.0f}".format(x)), 
                 inc_pivot.style.format(lambda x: "{:,.0f}".format(x)), 
                 use_container_width=False)
+
+            # def highlight_total(row):
+            #     if row.name == "GRAND TOTAL":
+            #         return [
+            #             "background-color: #e9ecef; font-weight: bold;"
+            #         ] * len(row)
+            #     return [""] * len(row)
+
+            # st.dataframe(
+            #     inc_pivot.style
+            #         .format("{:,.0f}")
+            #         .apply(highlight_total, axis=1),
+            #     use_container_width=False
+            # )
+        st.divider()
 
         # --- 6. EXPENSE REPORT (EXP) EXCLUDING OWNER ---
         exp_mask = filtered_df['CATEGORY'].str.strip().str.upper().str.startswith('EXP', na=False)
