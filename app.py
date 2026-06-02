@@ -122,7 +122,7 @@ def compute_balances(account, inflow, outflow):
     return new_cash, new_mandiri
 
 def prepare_transaction(entry_type, amount):
-    if entry_type == "In Flow":
+    if entry_type == " 📉 In Flow ":
         return amount, 0
     else:
         return 0, amount
@@ -166,12 +166,12 @@ def record_form(entry_type):
             st.caption("Enter amount to see formatted total")
 
     with col2:
-        if entry_type == "In Flow":
+        if entry_type == " 📉 In Flow ":
             categories = get_names("income")
         else:
             categories = get_names("expenses")
 
-        label = "Income Category" if entry_type == "In Flow" else "Expense Category"
+        label = "Income Category" if entry_type == " 📉 In Flow " else "Expense Category"
 #        category = st.selectbox(label, categories)
         category = st.selectbox(
             label, 
@@ -604,14 +604,14 @@ elif menu == "All Records":
 elif menu == "Record Entry":
     st.title("📝 Record Entry")
 
-    entry_type = st.segmented_control("", [" 📉 In Flow ", " 📈 Out Flow "])
+    entry_type = st.segmented_control("Transaction ype", [" 📉 In Flow ", " 📈 Out Flow "])
     
-    if entry_type == "In Flow":
-        st.subheader("Add :violet[Income] Record")
-    elif entry_type == "Out Flow":
-        st.subheader("Add :yellow[Expense] Record")
+    if entry_type == " 📉 In Flow ":
+        st.subheader("Add :green[Income] Record")
+    elif entry_type == " 📈 Out Flow ":
+        st.subheader("Add :red[Expense] Record")
     else:
-        st.write("**Please choose :violet['In Flow'] to add an :violet[Income record] and :yellow['Out Flow'] to add an :yellow[Expense record].**")
+        st.write("**Please choose :green['In Flow'] to add an :green[Income record] and :red['Out Flow'] to add an :red[Expense record].**")
     st.divider()
 
     curdat, item, amount, category, unit, account = record_form(entry_type)
