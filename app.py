@@ -290,6 +290,8 @@ with st.sidebar:
         
     st.sidebar.divider()
 
+    #back ups
+
     if st.sidebar.button("Logout"):
 
         st.session_state.logged_in = False
