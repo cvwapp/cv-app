@@ -82,12 +82,12 @@ def get_last_balance():
     result = cursor.fetchone()
     return result if result else (0, 0)
 
-def insert_record(curdat, category, nitem, nunit, outflow, inflow, account, new_cash, new_mandiri):
+def insert_record(curdat, category, item, nunit, outflow, inflow, account, new_cash, new_mandiri):
     cursor.execute("""
         INSERT INTO records 
         (DATE, CATEGORY, DESCRIPTION, UNIT, RP_OUT, RP_IN, ACCOUNT, CASH_BAL, MANDIRI_BAL)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (curdat, category, nitem, nunit, outflow, inflow, account, new_cash, new_mandiri))
+    """, (curdat, category, item, nunit, outflow, inflow, account, new_cash, new_mandiri))
 
     conn.commit()
 
@@ -613,7 +613,7 @@ elif menu == "Record Entry":
     st.divider()
 
     curdat, item, amount, category, unit, account = record_form(entry_type)
-    nitem = item.upper()
+    #nitem = item.upper()
 #    nunit = unit.upper()
 
 
@@ -625,13 +625,13 @@ elif menu == "Record Entry":
             if amount < 1:
                 st.error("❌ Error: Please review input amount")
             elif category is None:
-                st.error("❌ Please select a category before saving!")
-            elif nitem is None:
-                st.error("❌ Please describe the income/expense before saving!")
+                st.error("❌ Please select a category before saving")
+            elif item.strip() == "":
+                st.error("❌ Please describe the income/expense before saving")
             elif unit is None:
-                st.error("❌ Please select a villa unit before saving!")
+                st.error("❌ Please select a villa unit before saving")
             elif account is None:
-                st.error("❌ Please select an account before saving!")
+                st.error("❌ Please select an account before saving")
             else:
                 
                 try:
@@ -642,7 +642,7 @@ elif menu == "Record Entry":
                     insert_record(
                         curdat,
                         category,
-                        nitem,
+                        item,
                         unit,
                         outflow,
                         inflow,
