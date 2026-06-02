@@ -135,7 +135,7 @@ def record_form(entry_type):
     col1, col2 = st.columns(2)
     if "form_id" not in st.session_state:
         st.session_state.form_id = 0
-        
+    form_disabled = entry_type is None    
     with col1:
         # Create sub-columns inside col1 just for the date section
         date_col, display_col = st.columns([1, 1])
@@ -145,7 +145,8 @@ def record_form(entry_type):
             min_value=date(2026, 1, 1),
             max_value=date.today(),
             format="DD-MM-YYYY",
-            key=f"date_{st.session_state.form_id}")
+            key=f"date_{st.session_state.form_id}",
+            disabled=form_disabled)
         
         with display_col:
             st.write("######")
@@ -157,8 +158,11 @@ def record_form(entry_type):
                 curdat = None
                 curdat1 = None
         
-        item = st.text_input("Description").upper()
-        amount = st.number_input("Amount (IDR)", min_value=0, step=100000, key=f"amount_{st.session_state.form_id}")
+        item = st.text_input("Description",key=f"item_{st.session_state.form_id}",
+                             disabled=form_disabled).upper()
+        amount = st.number_input("Amount (IDR)", min_value=0, step=100000,
+                                 key=f"amount_{st.session_state.form_id}",
+                                 disabled=form_disabled)
         if amount > 0:
             # This formats the number with commas and Rp prefix live
             st.caption(f"💰 **Total: Rp {amount:,.0f}**")
@@ -178,16 +182,19 @@ def record_form(entry_type):
             options=categories, 
             index=None, 
             placeholder="--- Select a Category ---",
-            key=f"cat_selector_{st.session_state.form_id}")
+            key=f"cat_selector_{st.session_state.form_id}",
+            disabled=form_disabled)
 #        unit = st.text_input("UNIT").upper()
         unit = st.selectbox("Villa Unit", get_names("properties"),
             index=None, 
             placeholder="--- Select Villa Unit ---",
-            key=f"unit_{st.session_state.form_id}")
+            key=f"unit_{st.session_state.form_id}",
+            disabled=form_disabled)
         account = st.selectbox("Account", get_names("accounts"),
             index=None, 
             placeholder="--- Select an Account ---",
-            key=f"account_{st.session_state.form_id}")
+            key=f"account_{st.session_state.form_id}",
+            disabled=form_disabled)
 
     return curdat, item, amount, category, unit, account
 
@@ -609,7 +616,7 @@ elif menu == "Record Entry":
     elif entry_type == " 📈 Out Flow ":
         st.subheader("Add :red[Expense] Record")
     else:
-        st.write("**Please choose :green['In Flow'] to add an :green[Income record] and :red['Out Flow'] to add an :red[Expense record].**")
+        st.write("**To enable entry fields, please choose :green['In Flow'] to add an :green[Income record] and :red['Out Flow'] to add an :red[Expense record].**")
     st.divider()
 
     curdat, item, amount, category, unit, account = record_form(entry_type)
