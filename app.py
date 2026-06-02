@@ -609,7 +609,7 @@ elif menu == "All Records":
 elif menu == "Record Entry":
     st.title("📝 Record Entry")
 
-    entry_type = st.segmented_control("Transaction ype", [" 📉 In Flow ", " 📈 Out Flow "])
+    entry_type = st.segmented_control("Transaction Type", [" 📉 In Flow ", " 📈 Out Flow "])
     
     if entry_type == " 📉 In Flow ":
         st.subheader("Add :green[Income] Record")
