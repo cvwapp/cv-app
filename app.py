@@ -434,8 +434,6 @@ elif menu == "DB Entry":
 #                else:
 #                    st.write("No entry to update")
 
-
-    st.divider()
 elif menu == "All Records":
     st.title("🗄️ Master Records")
 #    st.title("Canggutopia - Inputs DB 🌴")
