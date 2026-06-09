@@ -5,6 +5,18 @@ from datetime import datetime
 import pandas as pd
 import io
 import zipfile
+import time
+
+# app_start = time.time()
+
+# if "run_count" not in st.session_state:
+#     st.session_state.run_count = 0
+
+# st.session_state.run_count += 1
+
+# st.write(f"Run #{st.session_state.run_count}")
+
+
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -19,48 +31,113 @@ if "form_id" not in st.session_state:
     st.session_state.form_id = 0
 
 # --- DATABASE ---
-conn = psycopg2.connect(
-    host=st.secrets["SUPABASE_HOST"],
-    dbname=st.secrets["SUPABASE_DB"],
-    user=st.secrets["SUPABASE_USER"],
-    password=st.secrets["SUPABASE_PASSWORD"],
-    port=st.secrets["SUPABASE_PORT"]
-)
+#start = time.time()
+
+@st.cache_resource
+def get_connection():
+    return psycopg2.connect(
+        host=st.secrets["SUPABASE_HOST"],
+        dbname=st.secrets["SUPABASE_DB"],
+        user=st.secrets["SUPABASE_USER"],
+        password=st.secrets["SUPABASE_PASSWORD"],
+        port=st.secrets["SUPABASE_PORT"]
+    )
+#st.write(f"Connection took {time.time() - start:.3f} seconds")
+
+conn = get_connection()
 cursor = conn.cursor()
 
+@st.cache_data(ttl=30)
+def load_records_df():
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM "RECORDS"')
+    data = cursor.fetchall()
+
+    columns = [desc[0] for desc in cursor.description]
+
+    df = pd.DataFrame(data, columns=columns)
+
+    df['date_dt'] = pd.to_datetime(
+        df['DATE'],
+        format='%d-%b-%y',
+        errors='coerce'
+    )
+
+    if df['date_dt'].isna().any():
+        df.loc[df['date_dt'].isna(), 'date_dt'] = pd.to_datetime(
+            df.loc[df['date_dt'].isna(), 'DATE'],
+            errors='coerce'
+        )
+
+    num_cols = ['RP_OUT', 'RP_IN', 'CASH_BAL', 'MANDIRI_BAL']
+
+    for col in num_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+    return df
+
+@st.cache_data(ttl=300)
+def load_properties():
+    cursor = conn.cursor()
+    cursor.execute('SELECT "NAME" FROM "PROPERTIES" ORDER BY "NAME"')
+    return [row[0] for row in cursor.fetchall()]
+
+
+@st.cache_data(ttl=300)
+def load_accounts():
+    cursor = conn.cursor()
+    cursor.execute('SELECT "NAME" FROM "ACCOUNTS" ORDER BY "NAME"')
+    return [row[0] for row in cursor.fetchall()]
+
+
+@st.cache_data(ttl=300)
+def load_expenses():
+    cursor = conn.cursor()
+    cursor.execute('SELECT "NAME" FROM "EXPENSES" ORDER BY "NAME"')
+    return [row[0] for row in cursor.fetchall()]
+
+
+@st.cache_data(ttl=300)
+def load_income():
+    cursor = conn.cursor()
+    cursor.execute('SELECT "NAME" FROM "INCOME" ORDER BY "NAME"')
+    return [row[0] for row in cursor.fetchall()]
+
 # --- TABLES ---
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS properties (
-    ID INTEGER PRIMARY KEY,
-     name TEXT UNIQUE)""")
+# cursor.execute("""
+# CREATE TABLE IF NOT EXISTS properties (
+#     ID INTEGER PRIMARY KEY,
+#      name TEXT UNIQUE)""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS accounts (
-    id INTEGER PRIMARY KEY,
-    name TEXT UNIQUE)""")
+# cursor.execute("""
+# CREATE TABLE IF NOT EXISTS accounts (
+#     id INTEGER PRIMARY KEY,
+#     name TEXT UNIQUE)""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS expenses (
-    id INTEGER PRIMARY KEY,
-    name TEXT UNIQUE)""")
+# cursor.execute("""
+# CREATE TABLE IF NOT EXISTS expenses (
+#     id INTEGER PRIMARY KEY,
+#     name TEXT UNIQUE)""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS income (
-    id INTEGER PRIMARY KEY,
-    name TEXT UNIQUE)""")
+# cursor.execute("""
+# CREATE TABLE IF NOT EXISTS income (
+#     id INTEGER PRIMARY KEY,
+#     name TEXT UNIQUE)""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS records (
-    ID INTEGER PRIMARY KEY,
-    DATE DATE,
-    CATEGORY TEXT,
-    DESCRIPTION TEXT,
-    UNIT TEXT,
-    RP_OUT NUMERIC,
-    RP_IN NUMERIC,
-    ACCOUNT TEXT,
-    CASH_BAL NUMERIC,
-    MANDIRI_BAL NUMERIC)""")
+# cursor.execute("""
+# CREATE TABLE IF NOT EXISTS records (
+#     ID INTEGER PRIMARY KEY,
+#     DATE DATE,
+#     CATEGORY TEXT,
+#     DESCRIPTION TEXT,
+#     UNIT TEXT,
+#     RP_OUT NUMERIC,
+#     RP_IN NUMERIC,
+#     ACCOUNT TEXT,
+#     CASH_BAL NUMERIC,
+#     MANDIRI_BAL NUMERIC)""")
 
 # cursor.execute("""
 # CREATE TABLE IF NOT EXISTS Master (
@@ -75,13 +152,13 @@ CREATE TABLE IF NOT EXISTS records (
 # 	"CASH BAL"	NUMERIC,
 # 	"MANDIRI BAL"	NUMERIC)""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    username TEXT PRIMARY KEY,
-    password TEXT NOT NULL,
-    role TEXT NOT NULL)""")
+# cursor.execute("""
+# CREATE TABLE IF NOT EXISTS users (
+#     username TEXT PRIMARY KEY,
+#     password TEXT NOT NULL,
+#     role TEXT NOT NULL)""")
 
-conn.commit()
+# conn.commit()
 
 # --- FUNCTIONS ---
 def get_last_balance():
@@ -249,8 +326,7 @@ def create_backup_zip():
 # --- Show Login Form
 if not st.session_state.logged_in:
 
-    st.title("🔐 Login Sup")
-
+    st.title("🔐 Login")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
 
@@ -269,17 +345,14 @@ if not st.session_state.logged_in:
             st.session_state.logged_in = True
             st.session_state.username = username
             st.session_state.role = user[0]
-
             st.rerun()
-
         else:
             st.error("Invalid username or password")
 
     st.stop()
-
 # --- UI ---
 # Set page configuration (optional but looks professional)
-st.set_page_config(page_title="Canggutopia Villas Sup", layout="wide")
+st.set_page_config(page_title="Canggutopia Villas", layout="wide")
 
 # --- SIDEBAR MENU ---
 with st.sidebar:
@@ -295,14 +368,15 @@ with st.sidebar:
             "Navigation",
             ["Record Entry", "All Records", "Reports", "DB Entry"])
 
-        backup_zip, backup_filename = create_backup_zip()
+        if st.button("Prepare Backup"):
+            backup_zip, backup_filename = create_backup_zip()
 
-        st.download_button(
-            label="📥 Download Full Backup",
-            data=backup_zip,
-            file_name=backup_filename,
-            mime="application/zip"
-        )
+            st.download_button(
+                label="📥 Download Full Backup",
+                data=backup_zip,
+                file_name=backup_filename,
+                mime="application/zip"
+            )
 
     elif role == "USER":
         menu = st.sidebar.radio(
@@ -315,14 +389,10 @@ with st.sidebar:
         
     st.sidebar.divider()
 
-    #back ups
-
     if st.sidebar.button("Logout"):
-
         st.session_state.logged_in = False
         st.session_state.username = None
         st.session_state.role = None
-
         st.rerun()
 
 # --- 1. HOME PAGE ---
@@ -354,18 +424,17 @@ elif menu == "DB Entry":
                         (new_prop,)
                     )
                     conn.commit()
+                    load_properties.clear()
                     st.success("Property added!")
                 except Exception as e:
                     conn.rollback()
-                    st.error(f"Database error: {e}")
+#                    st.error(f"Database error: {e}")
                     st.warning("Property already exists")
     with col2:
-    #    st.divider()
         st.write("Existing Properties")
-        cursor.execute('SELECT "NAME" FROM "PROPERTIES"')
-        sources = cursor.fetchall()
+        sources = load_properties()
         for s in sources:
-            st.write(f"- {s[0]}")
+            st.write(f"- {s}")
 
 #    with col2:
 #        st.write("Delete Property")
@@ -395,16 +464,16 @@ elif menu == "DB Entry":
                         (new_acct,)
                     )
                     conn.commit()
+                    load_accounts.clear()
                     st.success("Account added!")
                 except:
                     conn.rollback()
                     st.warning("Account already exists")
     with col2:
         st.write("Existing Accounts")
-        cursor.execute('SELECT "NAME" FROM "ACCOUNTS"')
-        sources = cursor.fetchall()
-        for s in sources:
-            st.write(f"- {s[0]}")
+        accounts = load_accounts()
+        for s in accounts:
+            st.write(f"- {s}")
     st.divider()
     
     st.subheader("Expenses")
@@ -421,16 +490,16 @@ elif menu == "DB Entry":
                         (new_exp,)
                     )
                     conn.commit()
+                    load_expenses.clear()
                     st.success("Expense added!")
                 except:
                     conn.rollback()
                     st.warning("Expense already exists")
     with col2:
         st.write("Existing Expenses")
-        cursor.execute('SELECT "NAME" FROM "EXPENSES"')
-        sources = cursor.fetchall()
-        for s in sources:
-            st.write(f"- {s[0]}")
+        expenses = load_expenses()
+        for s in expenses:
+            st.write(f"- {s}")
     st.divider()
 
     st.subheader("Income")
@@ -448,17 +517,17 @@ elif menu == "DB Entry":
                         (new_inco,)
                     )
                     conn.commit()
+                    load_income.clear()
                     st.success("Income added!")
                 except Exception as e:
                     conn.rollback()
-                    st.error(f"Database error: {e}")
-#                    st.warning("Income already exists")
+#                    st.error(f"Database error: {e}")
+                    st.warning("Income already exists")
     with col2:
         st.write("Existing Income")
-        cursor.execute('SELECT "NAME" FROM "INCOME"')
-        sources = cursor.fetchall()
-        for s in sources:
-            st.write(f"- {s[0]}")
+        income = load_income()
+        for s in income:
+            st.write(f"- {s}")
 
 #    with col3:
 #        cursor.execute("SELECT name FROM income")
@@ -476,34 +545,11 @@ elif menu == "DB Entry":
 
 elif menu == "All Records":
     st.title("🗄️ Master Records")
-#    st.title("Canggutopia - Inputs DB 🌴")
-#    st.subheader("Properties")
     st.divider()
 
 #    st.header("All Master Entries - Records")
     # 1. Fetch data and standardize column names
-    cursor.execute('SELECT * FROM "RECORDS"')
-    data = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    df = pd.DataFrame(data, columns=columns)
-#    df.columns = [c.lower() for c in df.columns]
-
-    # 2. Convert string back to Date object for logic
-    # %d = Day, %b = Month name (Apr), %y = 2-digit Year (26)
-    df['date_dt'] = pd.to_datetime(df['DATE'], format='%d-%b-%y', errors='coerce')
-
-    # 3. Handling leftovers
-    # If you have old '2026-04-16' records, this catches them:
-    if df['date_dt'].isna().any():
-        df.loc[df['date_dt'].isna(), 'date_dt'] = pd.to_datetime(
-            df.loc[df['date_dt'].isna(), 'DATE'], errors='coerce'
-        )
-
-    # Convert Numeric Columns (Change names to match your DB casing)
-    num_cols = ['RP_OUT', 'RP_IN', 'CASH_BAL', 'MANDIRI_BAL']
-    for col in num_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    df = load_records_df()
 
     # 2. CREATE FILTER UI
     st.markdown("### 🔍 Filter Records")
@@ -567,14 +613,6 @@ elif menu == "All Records":
                 (filtered_db['date_dt'].dt.date >= start_date) &
                 (filtered_db['date_dt'].dt.date <= end_date)
             ]
-
-    # # Apply Date Range
-    # if len(date_range) == 2:
-    #     start_date, end_date = date_range
-    #     filtered_db = filtered_db[
-    #         (filtered_db['date_dt'].dt.date >= start_date) & 
-    #         (filtered_db['date_dt'].dt.date <= end_date)
-    #     ]
 
     # Apply Category (Multiple)
     if selected_cats:
@@ -699,7 +737,7 @@ elif menu == "Record Entry":
                         new_cash,
                         new_mandiri
                     )
-
+                    load_records_df.clear()
                     st.success("Entry saved!")
                     st.session_state.form_id += 1
                     #if "entry_type" in st.session_state:
@@ -711,13 +749,6 @@ elif menu == "Record Entry":
     st.divider()
 
     # --- SHOW ENRTIES ---
-    # st.header("All Entries")
-
-    # cursor.execute("SELECT * FROM records")
-    # rows = cursor.fetchall()
-
-    # for row in rows:
-    #     st.write(row)
     st.header("Latest 5 Entries")
 
     # 1. Fetch data and use ORDER BY / LIMIT to get the latest 5
@@ -737,13 +768,6 @@ elif menu == "Record Entry":
 
     # 3. Create a DataFrame
     df = pd.DataFrame(rows, columns=columns)
-
-    # 3.5 Filter before display
-    # Only show specific columns in a specific order
-    #display_cols = ["entry date", "category", "item", "account", "in flow", "out flow"]
-    #st.dataframe(df[display_cols])
-
-    #display_styled_records(df)
 
     # 4. Display with formatting (removing decimals for balances/flows)
     st.dataframe(
@@ -823,6 +847,7 @@ elif menu == "Record Entry":
                     """, (running_cash, running_mandiri, rid))
 
                 conn.commit()
+                load_records_df.clear()
                 st.success("Record deleted. Balances updated from anchor point.")
                 st.rerun()
 
@@ -831,7 +856,6 @@ elif menu == "Record Entry":
                 st.error(f"Recalculation failed: {e}")
     else:
         st.info("No records found in the latest 5 entries.")
-
 
 elif menu == "Reports":
     st.title("📊 Financial Performance & Owner Payouts")
@@ -896,24 +920,10 @@ elif menu == "Reports":
             inc_pivot.loc['GRAND TOTAL'] = inc_pivot.sum()
 
             st.dataframe(
-#                inc_pivot.style.format(lambda x: "" if x == 0 else "{:,.0f}".format(x)), 
                 inc_pivot.style.format(lambda x: "{:,.0f}".format(x)), 
                 #use_container_width=False)
                 width="content")
             
-            # def highlight_total(row):
-            #     if row.name == "GRAND TOTAL":
-            #         return [
-            #             "background-color: #e9ecef; font-weight: bold;"
-            #         ] * len(row)
-            #     return [""] * len(row)
-
-            # st.dataframe(
-            #     inc_pivot.style
-            #         .format("{:,.0f}")
-            #         .apply(highlight_total, axis=1),
-            #     use_container_width=False
-            # )
         st.divider()
 
         # --- 6. EXPENSE REPORT (EXP) EXCLUDING OWNER ---
@@ -1042,5 +1052,5 @@ elif menu == "Reports":
 
     st.success("Reporting engine loaded successfully.")
 
-
+#st.caption(f"Full app run: {time.time() - app_start:.3f} sec")
 
