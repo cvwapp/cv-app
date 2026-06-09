@@ -1,7 +1,10 @@
 import streamlit as st
-import sqlite3
+import psycopg2
 from datetime import date
+from datetime import datetime
 import pandas as pd
+import io
+import zipfile
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -12,8 +15,17 @@ if "role" not in st.session_state:
 if "username" not in st.session_state:
     st.session_state.username = None
 
+if "form_id" not in st.session_state:
+    st.session_state.form_id = 0
+
 # --- DATABASE ---
-conn = sqlite3.connect("canggutopia.db", check_same_thread=False)
+conn = psycopg2.connect(
+    host=st.secrets["SUPABASE_HOST"],
+    dbname=st.secrets["SUPABASE_DB"],
+    user=st.secrets["SUPABASE_USER"],
+    password=st.secrets["SUPABASE_PASSWORD"],
+    port=st.secrets["SUPABASE_PORT"]
+)
 cursor = conn.cursor()
 
 # --- TABLES ---
@@ -74,19 +86,30 @@ conn.commit()
 # --- FUNCTIONS ---
 def get_last_balance():
     cursor.execute("""
-        SELECT COALESCE(CASH_BAL, 0), COALESCE(MANDIRI_BAL, 0)
-        FROM records
-        ORDER BY ID DESC
+        SELECT
+            COALESCE("CASH_BAL",0),
+            COALESCE("MANDIRI_BAL",0)
+        FROM "RECORDS"
+        ORDER BY "ID" DESC
         LIMIT 1
     """)
+    
     result = cursor.fetchone()
-    return result if result else (0, 0)
+    return result if result else (0,0)
 
 def insert_record(curdat, category, item, nunit, outflow, inflow, account, new_cash, new_mandiri):
     cursor.execute("""
-        INSERT INTO records 
-        (DATE, CATEGORY, DESCRIPTION, UNIT, RP_OUT, RP_IN, ACCOUNT, CASH_BAL, MANDIRI_BAL)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO "RECORDS"
+        (   "DATE",
+            "CATEGORY",
+            "DESCRIPTION",
+            "UNIT",
+            "RP_OUT",
+            "RP_IN",
+            "ACCOUNT",
+            "CASH_BAL",
+            "MANDIRI_BAL")
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (curdat, category, item, nunit, outflow, inflow, account, new_cash, new_mandiri))
 
     conn.commit()
@@ -128,7 +151,7 @@ def prepare_transaction(entry_type, amount):
         return 0, amount
 
 def get_names(table):
-    cursor.execute(f"SELECT name FROM {table}")
+    cursor.execute(f'SELECT "NAME" FROM "{table.upper()}"')
     return [row[0] for row in cursor.fetchall()]
 
 def record_form(entry_type):
@@ -198,38 +221,30 @@ def record_form(entry_type):
 
     return curdat, item, amount, category, unit, account
 
+def create_backup_zip():
 
-# def display_styled_records(df_to_show):
-#     """
-#     Takes a dataframe and displays it with custom 
-#     column names and currency formatting.
-#     """
-#     df_to_show.columns = [c.lower() for c in df_to_show.columns]
-    
-#     return st.dataframe(
-#         df_to_show,
-#         column_config={
-#             "ID": "ID",
-#             "ENTRYDATE": "Date",
-#             "CATEGORY": "Category",
-#             "ITEM": "Description",
-#             "VILLAUNIT": "Unit",
-#             "INFLOW": st.column_config.NumberColumn("IN", format="%,d"),  # %d tells it 'Display as integer'
-#             "OUTFLOW": st.column_config.NumberColumn("OUT", format="%,d"),
-#             "ACCOUNT": "Account",
-#             "CASH": st.column_config.NumberColumn("Cash Balance", format="%,d"),
-#             "MANDIRI": st.column_config.NumberColumn("Mandiri Balance", format="%,d")
-#         },
-#         use_container_width=True,
-#         hide_index=True
-#     )
+    tables = [
+        "RECORDS",
+        "ACCOUNTS",
+        "EXPENSES",
+        "INCOME",
+        "PROPERTIES",
+        "USERS"
+    ]
 
-# def display_styled_records(df_to_show):
-#     # Ensure the money columns are actually numbers, not strings
-#     money_cols = ["INFLOW", "OUTFLOW", "CASH", "MANDIRI"]
-#     for col in money_cols:
-#       if col in df_to_show.columns:
-#             df_to_show[col] = pd.to_numeric(df_to_show[col], errors='coerce')
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for table in tables:
+            cursor.execute(f'SELECT * FROM "{table}"')
+            rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            df = pd.DataFrame(rows, columns=columns)
+            csv_data = df.to_csv(index=False)
+            zf.writestr(f"{table}.csv", csv_data)
+
+    zip_buffer.seek(0)
+    return zip_buffer, f"canggutopia_bu_{datetime.now():%Y%m%d}.zip"
 
 # --- Show Login Form
 if not st.session_state.logged_in:
@@ -242,11 +257,11 @@ if not st.session_state.logged_in:
     if st.button("Login"):
 
         cursor.execute("""
-            SELECT role
-            FROM users
-            WHERE username=?
-            AND password=?
-        """, (username,password))
+            SELECT "ROLE"
+            FROM "USERS"
+            WHERE "USERNAME"=%s
+            AND "PASSWORD"=%s
+        """, (username, password))
 
         user = cursor.fetchone()
 
@@ -279,6 +294,16 @@ with st.sidebar:
         menu = st.sidebar.radio(
             "Navigation",
             ["Record Entry", "All Records", "Reports", "DB Entry"])
+
+        backup_zip, backup_filename = create_backup_zip()
+
+        st.download_button(
+            label="📥 Download Full Backup",
+            data=backup_zip,
+            file_name=backup_filename,
+            mime="application/zip"
+        )
+
     elif role == "USER":
         menu = st.sidebar.radio(
             "Navigation",
@@ -325,17 +350,19 @@ elif menu == "DB Entry":
             if new_prop:
                 try:
                     cursor.execute(
-                        "INSERT INTO properties (name) VALUES (?)",
+                        'INSERT INTO "PROPERTIES" ("NAME") VALUES (%s)',
                         (new_prop,)
                     )
                     conn.commit()
                     st.success("Property added!")
-                except:
+                except Exception as e:
+                    conn.rollback()
+                    st.error(f"Database error: {e}")
                     st.warning("Property already exists")
     with col2:
     #    st.divider()
         st.write("Existing Properties")
-        cursor.execute("SELECT name FROM properties")
+        cursor.execute('SELECT "NAME" FROM "PROPERTIES"')
         sources = cursor.fetchall()
         for s in sources:
             st.write(f"- {s[0]}")
@@ -364,16 +391,17 @@ elif menu == "DB Entry":
             if new_acct:
                 try:
                     cursor.execute(
-                        "INSERT INTO accounts (name) VALUES (?)",
+                        'INSERT INTO "ACCOUNTS" ("NAME") VALUES (%s)',
                         (new_acct,)
                     )
                     conn.commit()
                     st.success("Account added!")
                 except:
+                    conn.rollback()
                     st.warning("Account already exists")
     with col2:
         st.write("Existing Accounts")
-        cursor.execute("SELECT name FROM accounts")
+        cursor.execute('SELECT "NAME" FROM "ACCOUNTS"')
         sources = cursor.fetchall()
         for s in sources:
             st.write(f"- {s[0]}")
@@ -382,23 +410,24 @@ elif menu == "DB Entry":
     st.subheader("Expenses")
     col1, col2, col3 = st.columns(3)
     with col1:
-        new_source = st.text_input("Add New Expenses")
+        new_source = st.text_input('Add New Expense - :yellow[Please put leading "EXP - "]')
         new_exp = new_source.upper()
 
         if st.button("Add Expense"):
             if new_exp:
                 try:
                     cursor.execute(
-                        "INSERT INTO expenses (name) VALUES (?)",
+                        'INSERT INTO "EXPENSES" ("NAME") VALUES (%s)',
                         (new_exp,)
                     )
                     conn.commit()
                     st.success("Expense added!")
                 except:
+                    conn.rollback()
                     st.warning("Expense already exists")
     with col2:
         st.write("Existing Expenses")
-        cursor.execute("SELECT name FROM expenses")
+        cursor.execute('SELECT "NAME" FROM "EXPENSES"')
         sources = cursor.fetchall()
         for s in sources:
             st.write(f"- {s[0]}")
@@ -408,23 +437,25 @@ elif menu == "DB Entry":
     col1, col2, col3 = st.columns(3)
     with col1:
 
-        new_source = st.text_input("Add New Income")
+        new_source = st.text_input('Add New Income - :yellow[Please put leading "INC - "]')
         new_inco = new_source.upper()
 
         if st.button("Add Income"):
             if new_inco:
                 try:
                     cursor.execute(
-                        "INSERT INTO income (name) VALUES (?)",
+                        'INSERT INTO "INCOME" ("NAME") VALUES (%s)',
                         (new_inco,)
                     )
                     conn.commit()
                     st.success("Income added!")
-                except:
-                    st.warning("Income already exists")
+                except Exception as e:
+                    conn.rollback()
+                    st.error(f"Database error: {e}")
+#                    st.warning("Income already exists")
     with col2:
         st.write("Existing Income")
-        cursor.execute("SELECT name FROM income")
+        cursor.execute('SELECT "NAME" FROM "INCOME"')
         sources = cursor.fetchall()
         for s in sources:
             st.write(f"- {s[0]}")
@@ -451,7 +482,7 @@ elif menu == "All Records":
 
 #    st.header("All Master Entries - Records")
     # 1. Fetch data and standardize column names
-    cursor.execute("SELECT * FROM records")
+    cursor.execute('SELECT * FROM "RECORDS"')
     data = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     df = pd.DataFrame(data, columns=columns)
@@ -486,25 +517,21 @@ elif menu == "All Records":
         min_date = df['date_dt'].min().date() if not df['date_dt'].isna().all() else None
         max_date = df['date_dt'].max().date() if not df['date_dt'].isna().all() else None
 
-        show_all_dates = st.checkbox("Show all dates", value=True)
+        show_all_dates = st.checkbox("Show all dates", value=False)
 
         if not show_all_dates:
+            if max_date:
+                    default_start = max_date.replace(day=1)
+                    default_end = max_date
+            else:
+                default_start = None
+                default_end = None
+
             date_range = st.date_input(
                 "Select Date Range",
-                value=(min_date, max_date) if min_date and max_date else [],
+                value=(default_start, default_end) if default_start else [],
                 key="db_date_filter"
             )
-
-        # # Date Range Filter
-        # min_date = df['date_dt'].min().date() if not df['date_dt'].isna().all() else None
-        # max_date = df['date_dt'].max().date() if not df['date_dt'].isna().all() else None
-        
-        # date_range = st.date_input(
-        #     "Select Date Range",
-        #     value=(min_date, max_date) if min_date and max_date else [],
-        #     key="db_date_filter"
-        #     #format="DD-MM-YYYY"  # Match the ordering of your DD-MMM-YY format
-        # )
 
     with row1_col2:
         if 'ACCOUNT' in df.columns:
@@ -564,9 +591,16 @@ elif menu == "All Records":
     # Dropping the helper date_dt column before showing the table
     display_df = filtered_db.drop(columns=['date_dt'], errors='ignore')
     #st.write(df.dtypes)
+    if "ID" in display_df.columns:
+        display_df = display_df.sort_values(
+            by="ID",
+            ascending=False
+        )
+
     st.dataframe(
         display_df, 
-        use_container_width=True, 
+#        use_container_width=True, 
+        width="stretch",
         hide_index=True,
         column_config={
             "RP_OUT": st.column_config.NumberColumn("RP_OUT", format="%,.0f"),
@@ -580,9 +614,9 @@ elif menu == "All Records":
     st.subheader("💰 Current Account Balances")
 
     cursor.execute("""
-        SELECT DATE, CASH_BAL, MANDIRI_BAL
-        FROM records
-        ORDER BY ID DESC
+        SELECT "DATE", "CASH_BAL", "MANDIRI_BAL"
+        FROM "RECORDS"
+        ORDER BY "ID" DESC
         LIMIT 1
     """)
 
@@ -600,7 +634,8 @@ elif menu == "All Records":
 
         st.dataframe(
             balance_df.style.format({"BALANCE": "{:,.0f}"}),
-            use_container_width=False,
+            width="content",
+            #use_container_width=False,
             hide_index=True
         )
     else:
@@ -611,7 +646,12 @@ elif menu == "All Records":
 elif menu == "Record Entry":
     st.title("📝 Record Entry")
 
-    entry_type = st.segmented_control("Transaction Type", [" 📉 In Flow ", " 📈 Out Flow "])
+    entry_type = st.segmented_control(
+        "Transaction Type", 
+        [" 📉 In Flow ", " 📈 Out Flow "],
+        default=None,
+        key=f"entry_type_{st.session_state.form_id}"
+    )
     
     if entry_type == " 📉 In Flow ":
         st.subheader("Add :green[Income] Record")
@@ -660,11 +700,13 @@ elif menu == "Record Entry":
                         new_mandiri
                     )
 
-                    st.success("Entry saved!")   
+                    st.success("Entry saved!")
                     st.session_state.form_id += 1
-                    st.rerun() # This clears the form and resets the selectbox to blank
-
+                    #if "entry_type" in st.session_state:
+                    #    del st.session_state["entry_type"]
+                    st.rerun()
                 except ValueError as e:
+                        conn.rollback()
                         st.error(str(e))
     st.divider()
 
@@ -680,9 +722,11 @@ elif menu == "Record Entry":
 
     # 1. Fetch data and use ORDER BY / LIMIT to get the latest 5
     # We assume 'id' is your primary key; DESC puts the newest at the top
+
     cursor.execute("""
-        SELECT * FROM records 
-        ORDER BY ID DESC 
+        SELECT *
+        FROM "RECORDS"
+        ORDER BY "ID" DESC
         LIMIT 5
     """)
     rows = cursor.fetchall()
@@ -709,7 +753,8 @@ elif menu == "Record Entry":
             "CASH_BAL": "{:,.0f}",
             "MANDIRI_BAL": "{:,.0f}"
         }),
-        use_container_width=True,
+        #use_container_width=True,
+        width="stretch",
         hide_index=True  # Optional: hides the 0, 1, 2... row numbers
     )
 
@@ -738,9 +783,9 @@ elif menu == "Record Entry":
                 # This is your true "Anchor"
                 cursor.execute("""
                     SELECT "CASH_BAL", "MANDIRI_BAL" 
-                    FROM records 
-                    WHERE ID < ? 
-                    ORDER BY ID DESC LIMIT 1
+                    FROM "RECORDS" 
+                    WHERE "ID" < %s 
+                    ORDER BY "ID" DESC LIMIT 1
                 """, (id_to_delete,))
                 anchor = cursor.fetchone()
 
@@ -750,15 +795,15 @@ elif menu == "Record Entry":
                     running_cash, running_mandiri = 0, 0
 
                 # 2. Delete the record
-                cursor.execute("DELETE FROM records WHERE ID = ?", (id_to_delete,))
+                cursor.execute('DELETE FROM "RECORDS" WHERE "ID" = %s', (id_to_delete,))
 
                 # 3. Fetch only the rows that come AFTER the deleted ID
                 # These are the ONLY rows whose balances are now incorrect
                 cursor.execute("""
-                    SELECT ID, RP_IN, RP_OUT, ACCOUNT 
-                    FROM records 
-                    WHERE ID > ? 
-                    ORDER BY ID ASC
+                    SELECT "ID", "RP_IN", "RP_OUT", "ACCOUNT" 
+                    FROM "RECORDS" 
+                    WHERE "ID" > %s 
+                    ORDER BY "ID" ASC
                 """, (id_to_delete,))
                 
                 rows_to_fix = cursor.fetchall()
@@ -774,7 +819,7 @@ elif menu == "Record Entry":
                         running_mandiri += movement
                     
                     cursor.execute("""
-                        UPDATE records SET "CASH_BAL" = ?, "MANDIRI_BAL" = ? WHERE ID = ?
+                        UPDATE "RECORDS" SET "CASH_BAL" = %s, "MANDIRI_BAL" = %s WHERE "ID" = %s
                     """, (running_cash, running_mandiri, rid))
 
                 conn.commit()
@@ -782,157 +827,18 @@ elif menu == "Record Entry":
                 st.rerun()
 
             except Exception as e:
+                conn.rollback()
                 st.error(f"Recalculation failed: {e}")
     else:
         st.info("No records found in the latest 5 entries.")
 
-
-# --- 4. REPORTING ---
-# elif menu == "Reporting M":
-#     st.title("📊 Monthly Reporting")
-    
-#     # --- Put your existing logic here ---
-#     # Fetch Data -> Clean Data -> Filter Year -> Pivot Tables...
-    
-#     # Use the clean formatting we discussed:
-#     # st.dataframe(inc_pivot.style.format(lambda x: "" if x == 0 else "{:,.2f}".format(x)))
-
-#     #testing report
-#     st.header("📊 Financial Performance & Owner Payouts")
-
-#     # 1. Fetch data
-#     cursor.execute("SELECT date, category, cin, cout FROM Master")
-#     data = cursor.fetchall()
-
-#     if not data:
-#         st.warning("No data found in the Master table.")
-#     else:
-#         df = pd.DataFrame(data, columns=['date', 'category', 'cin', 'cout'])
-
-#         # --- THE SUPER CLEANER ---
-#         for col in ['cin', 'cout']:
-#             df[col] = df[col].astype(str).str.replace(r'[^\d.]', '', regex=True)
-#             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
-
-#         # 3. CONVERT DATE (DD-MMM-YY)
-#         df['date_dt'] = pd.to_datetime(df['date'], format='%d-%b-%y', errors='coerce')
-#         df = df.dropna(subset=['date_dt'])
-
-#         # 4. FILTER BY YEAR
-#         df['Year'] = df['date_dt'].dt.year
-#         year_list = sorted(df['Year'].unique(), reverse=True)
-#         #selected_year = st.sidebar.selectbox("Select Year", year_list)
-#         selected_year = st.selectbox("Select Year", year_list)
-#         filtered_df = df[df['Year'] == selected_year].copy()
-#         filtered_df['Month'] = filtered_df['date_dt'].dt.strftime('%m - %b')
-
-
-#         # --- 5. INCOME REPORT (INC) ---
-#         inc_mask = filtered_df['category'].str.strip().str.upper().str.startswith('INC', na=False)
-#         inc_df = filtered_df[inc_mask].copy()
-        
-#         inc_pivot = pd.DataFrame()
-#         if not inc_df.empty:
-#             st.subheader("Operating Revenue")
-#             inc_pivot = inc_df.pivot_table(index='category', columns='Month', values='cin', aggfunc='sum').fillna(0)
-#             inc_pivot['Category Total'] = inc_pivot.sum(axis=1)
-#             inc_pivot.loc['GRAND TOTAL'] = inc_pivot.sum()
-#             #st.dataframe(inc_pivot.style.format("{:,.2f}"), use_container_width=True)
-
-#             st.dataframe(
-#                 inc_pivot.style.format(lambda x: "" if x == 0 else "{:,.0f}".format(x)), 
-#                 use_container_width=True)
-
-#         # --- 6. EXPENSE REPORT (EXP) EXCLUDING OWNER ---
-#         exp_mask = filtered_df['category'].str.strip().str.upper().str.startswith('EXP', na=False)
-#         owner_mask = filtered_df['category'].str.upper().str.contains('OWNER', na=False)
-#         exp_df = filtered_df[exp_mask & ~owner_mask].copy()
-        
-#         exp_pivot = pd.DataFrame()
-#         if not exp_df.empty:
-#             st.subheader("Operating Expenses")
-#             exp_pivot = exp_df.pivot_table(index='category', columns='Month', values='cout', aggfunc='sum').fillna(0)
-#             exp_pivot['Category Total'] = exp_pivot.sum(axis=1)
-#             exp_pivot.loc['GRAND TOTAL'] = exp_pivot.sum()
-#             #st.dataframe(exp_pivot.style.format("{:,.2f}"), use_container_width=True)
-
-#             st.dataframe(
-#                 exp_pivot.style.format(lambda x: "" if x == 0 else "{:,.0f}".format(x)), 
-#                 use_container_width=True)
-            
-#         st.divider()
-
-#     # --- 7. PERFORMANCE SUMMARY (Monthly Breakdown) ---
-#         if not inc_pivot.empty or not exp_pivot.empty:
-#             # Extract Monthly Grand Totals safely (in case one table is completely empty)
-#             inc_monthly = inc_pivot.loc['GRAND TOTAL'].drop('Category Total', errors='ignore') if not inc_pivot.empty else pd.Series(dtype=float)
-#             exp_monthly = exp_pivot.loc['GRAND TOTAL'].drop('Category Total', errors='ignore') if not exp_pivot.empty else pd.Series(dtype=float)
-            
-#             # Monthly Net Profit = Income - Expenses
-#             monthly_net_profit = inc_monthly.sub(exp_monthly, fill_value=0)
-
-#             st.subheader("🏁 Performance Summary")
-            
-#             # Build a new DataFrame where the rows are your metrics and columns are the months
-#             perf_summary = pd.DataFrame(
-#                 [inc_monthly, exp_monthly, monthly_net_profit], 
-#                 index=["Total Income", "Total Expenses", "Net Profit"]
-#             ).fillna(0)
-
-#             # Add a final 'Yearly Total' column on the far right
-#             perf_summary['Yearly Total'] = perf_summary.sum(axis=1)
-
-#             # Display as a clean interactive dataframe to match your other tables
-#             st.dataframe(
-#                 perf_summary.style.format("{:,.0f}"), 
-#                 use_container_width=True
-#             )
-
-#             st.divider()
-
-#             # --- 8. OWNER PAYOUT DISTRIBUTION ---
-#             st.subheader(f"🏠 Owner Payout Distribution ({selected_year})")
-
-#             owner_shares = {
-#                 "Villa 1 - Stefan": 0.24,
-#                 "Villa 2 - Basti": 0.252,
-#                 "Villa 3 - Lars": 0.244,
-#                 "Villa 4 - Balint": 0.132,
-#                 "Villa 4 - Frieder": 0.066,
-#                 "Villa 4 - Laura": 0.066
-#             }
-
-#             # Apply shares to the monthly profit
-#             payout_data = []
-#             for owner, share in owner_shares.items():
-#                 row = monthly_net_profit * share
-#                 row.name = owner
-#                 payout_data.append(row)
-
-#             payout_report = pd.DataFrame(payout_data)
-
-#             # Add "Yearly Payout" (Horizontal Total)
-#             payout_report['Yearly Payout'] = payout_report.sum(axis=1)
-
-#             # Add "GRAND TOTAL" (Vertical Total)
-#             payout_report.loc['GRAND TOTAL'] = payout_report.sum()
-
-#             # Display using the interactive dataframe style you like
-#             st.dataframe(
-#                 payout_report.style.format("{:,.0f}"), 
-#                 use_container_width=True
-#             )
-
-#     st.success("Reporting engine loaded successfully.")
-
-#     st.divider()
 
 elif menu == "Reports":
     st.title("📊 Financial Performance & Owner Payouts")
     #st.header("📊 Financial Performance & Owner Payouts")
     
     # 1. Fetch data
-    cursor.execute("SELECT DATE, CATEGORY, RP_OUT, RP_IN FROM records")
+    cursor.execute('SELECT "DATE", "CATEGORY", "RP_OUT", "RP_IN" FROM "RECORDS"')
     data = cursor.fetchall()
     
     if not data:
@@ -992,8 +898,9 @@ elif menu == "Reports":
             st.dataframe(
 #                inc_pivot.style.format(lambda x: "" if x == 0 else "{:,.0f}".format(x)), 
                 inc_pivot.style.format(lambda x: "{:,.0f}".format(x)), 
-                use_container_width=False)
-
+                #use_container_width=False)
+                width="content")
+            
             # def highlight_total(row):
             #     if row.name == "GRAND TOTAL":
             #         return [
@@ -1026,7 +933,8 @@ elif menu == "Reports":
 
             st.dataframe(
                 exp_pivot.style.format(lambda x: "{:,.0f}".format(x)), 
-                use_container_width=False)
+                #use_container_width=False)
+                width="content")
             
         st.divider()
 
@@ -1053,8 +961,8 @@ elif menu == "Reports":
             # Display as a clean interactive dataframe to match your other tables
             st.dataframe(
                 perf_summary.style.format("{:,.0f}"), 
-                use_container_width=False
-            )
+                #use_container_width=False
+                width="content")
 
             st.divider()
 
@@ -1097,17 +1005,17 @@ elif menu == "Reports":
         # Display using the interactive dataframe style you like
         st.dataframe(
             payout_report.style.format("{:,.0f}"), 
-            use_container_width=False
-        )
+            #use_container_width=False
+            width="content")
 
         # --- 9. CURRENT BALANCES ---
         st.divider()
         st.subheader("💰 Current Account Balances")
 
         cursor.execute("""
-            SELECT DATE, CASH_BAL, MANDIRI_BAL
-            FROM records
-            ORDER BY ID DESC
+            SELECT "DATE", "CASH_BAL", "MANDIRI_BAL"
+            FROM "RECORDS"
+            ORDER BY "ID" DESC
             LIMIT 1
         """)
 
@@ -1125,7 +1033,8 @@ elif menu == "Reports":
 
             st.dataframe(
                 balance_df.style.format({"BALANCE": "{:,.0f}"}),
-                use_container_width=False,
+                width="content",
+                #use_container_width=False,
                 hide_index=True
             )
         else:
