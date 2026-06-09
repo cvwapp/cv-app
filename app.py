@@ -249,7 +249,7 @@ def create_backup_zip():
 # --- Show Login Form
 if not st.session_state.logged_in:
 
-    st.title("🔐 Login")
+    st.title("🔐 Login Sup")
 
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
@@ -279,7 +279,7 @@ if not st.session_state.logged_in:
 
 # --- UI ---
 # Set page configuration (optional but looks professional)
-st.set_page_config(page_title="Canggutopia Villas", layout="wide")
+st.set_page_config(page_title="Canggutopia Villas Sup", layout="wide")
 
 # --- SIDEBAR MENU ---
 with st.sidebar:
