@@ -44,9 +44,18 @@ def get_connection():
     )
 #st.write(f"Connection took {time.time() - start:.3f} seconds")
 
-conn = get_connection()
-cursor = conn.cursor()
+try:
+    conn = get_connection()
+    cursor = conn.cursor()
 
+except Exception:
+    st.error(
+        "⚠️ The database is currently unavailable or waking up.\n\n"
+        "If the app has been inactive for a while, Supabase may take "
+        "30–60 seconds to resume. Please wait a moment and refresh the page."
+    )
+    st.stop()
+    
 @st.cache_data(ttl=30)
 def load_records_df():
     cursor = conn.cursor()
