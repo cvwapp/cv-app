@@ -33,7 +33,7 @@ if "form_id" not in st.session_state:
 # --- DATABASE ---
 #start = time.time()
 
-@st.cache_resource
+#@st.cache_resource
 def get_connection():
     return psycopg2.connect(
         host=st.secrets["SUPABASE_HOST"],
