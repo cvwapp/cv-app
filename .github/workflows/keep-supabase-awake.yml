@@ -2,6 +2,7 @@ name: Keep Supabase Awake
 
 on:
   schedule:
+    # Every Sunday at 03:00 UTC
     - cron: "0 3 * * 0"
 
   workflow_dispatch:
@@ -11,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Ping app
+      - name: Ping Supabase REST API
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          python - <<'EOF'
-          import urllib.request
-
-          url = "https://cv-wapp.streamlit.app"
-
-          with urllib.request.urlopen(url, timeout=60) as r:
-              print("Status:", r.status)
-          EOF
+          curl --fail --silent --show-error \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "Accept: application/json" \
+            "$SUPABASE_URL/rest/v1/PROPERTIES?select=ID&limit=1"
